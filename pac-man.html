@@ -1,0 +1,414 @@
+<!doctype html>
+<html>
+<head>
+    
+    <link href="customCSS.css" rel="stylesheet">
+    <meta charset="utf-8">
+    
+    <style>
+        
+        canvas {
+            border: 1px solid black;
+        }
+        
+        #main {
+            margin: auto;
+            text-align: center;
+        }
+        
+    </style>
+    
+</head>
+<body>
+    
+    <div id="main">
+        <canvas id="canvas" width="570" height="630"></canvas>
+    </div>
+    
+    <script>
+    
+        var el_canvas = document.querySelector("#canvas");
+        var gc = el_canvas.getContext("2d");
+        
+        var map = [
+            "1111111111111111111",
+            "1000000001000000001",
+            "1011011101011101101",
+            "1000000000000000001",
+            "1011010111110101101",
+            "1000010001000100001",
+            "1111011101011101111",
+            "1111010000000101111",
+            "1111010112110101111",
+            "0003000112110003000",
+            "1111010111110101111",
+            "1111010000000101111",
+            "1111010111110101111",
+            "1000000001000000001",
+            "1011011101011101101",
+            "1001000000000001001",
+            "1101010111110101011",
+            "1000010001000100001",
+            "1011111101011111101",
+            "1000000000000000001",
+            "1111111111111111111"
+        ];
+        
+        var points = [
+            "0000000000000000000",
+            "0111111110111111110",
+            "0100100010100010010",
+            "0111111111111111110",
+            "0100101000001010010",
+            "0111101110111011110",
+            "0000100010100010000",
+            "0000101111111010000",
+            "0000101000001010000",
+            "0111111000001111110",
+            "0000101000001010000",
+            "0000101111111010000",
+            "0000101000001010000",
+            "0111111110111111110",
+            "0100100010100010010",
+            "0110111111111110110",
+            "0010101000001010100",
+            "0111101110111011110",
+            "0100000010100000010",
+            "0111111111111111110",
+            "0000000000000000000"
+        ];
+        
+        var Graphics = {
+            width: el_canvas.width,
+            height: el_canvas.height,
+            tile_w: el_canvas.width / map[0].length,
+            tile_h: el_canvas.height / map.length
+        }
+        
+        var Direction = {
+            down: 0,
+            left: 1,
+            right: 2,
+            up: 3,
+            opposite: function(direction) {
+                var opp = [3, 2, 1, 0];
+                return opp[direction];
+            }
+        }
+        
+        document.addEventListener("keydown", keyDown);
+        document.addEventListener("keyup", keyUp);
+        
+        var player = {
+            x: 9,
+            y: 11,
+            frame: 0,
+            time: 0,
+            score: 0,
+            speed: 0.075,
+            direction: 0,
+            moving: false,
+            input: []
+        };
+        
+        var ghosts = [
+            {x: 9, y: 9, speed: 0.05, direction: 2, moving: false, ai: "red", alive: false, time: 720, sprite: new Image(256, 256)},
+            {x: 9, y: 9, speed: 0.05, direction: 2, moving: false, ai: "blue", alive: false, time: 540, sprite: new Image(256, 256)},
+            {x: 9, y: 9, speed: 0.05, direction: 2, moving: false, ai: "orange", alive: false, time: 360, sprite: new Image(256, 256)},
+            {x: 9, y: 9, speed: 0.05, direction: 2, moving: false, ai: "pink", alive: false, lock: false, time: 180, sprite: new Image(256, 256)}
+        ];
+        ghosts[0].sprite.src = "img/ghost_red_right.png";
+        ghosts[1].sprite.src = "img/ghost_blue_right.png";
+        ghosts[2].sprite.src = "img/ghost_orange_right.png";
+        ghosts[3].sprite.src = "img/ghost_pink_right.png";
+        
+        var fps = setInterval(main, 1000/60)
+        
+        function main() {
+            gc.clearRect(0, 0, Graphics.width, Graphics.height);
+            updateInput();
+            movePlayer();
+            drawMap();
+            handleGhosts();
+            drawPlayer();
+            checkConditions();
+        }
+        
+        function drawMap() {
+            for (x = 0; x < map[0].length; x++) {
+                for (y = 0; y < map.length; y++) {
+                    if (map[y].charAt(x) == "0" || map[y].charAt(x) == "3") {
+                        gc.fillStyle = "white";
+                    } else if (map[y].charAt(x) == "1") {
+                        gc.fillStyle = "black";
+                    } else if (map[y].charAt(x) == "2") {
+                        gc.fillStyle = "lightgray";
+                    }
+                    gc.fillRect(x * Graphics.tile_w, y * Graphics.tile_h, Graphics.tile_w, Graphics.tile_h);
+                    if (points[y][x]==1) {
+                        gc.beginPath();
+                        gc.fillStyle = "orange";
+                        gc.ellipse(x * Graphics.tile_w + Graphics.tile_w/2, y * Graphics.tile_h + Graphics.tile_h/2, 4, 4, 0, 0, 2 * Math.PI);
+                        gc.fill();
+                        gc.closePath();
+                    }
+                }
+            }
+            gc.fillStyle = "white";
+            gc.font = "20px Arial";
+            gc.fillText("Score: " + player.score, 6, 20, 120);
+        }
+        
+        function isPassable(x, y, ghost = false, alive = true) {
+            if (map.length > y && y >= 0 &&
+               map[0].length > x && x >= 0) {
+                if (ghost) {
+                    return (map[y].charAt(x)=="0" || (map[y].charAt(x)=="2" && !alive));
+                } else {
+                    return (map[y].charAt(x)=="0" || map[y].charAt(x)=="3");
+                }
+            } else {
+                return true;
+            }
+        }
+        
+        function movePlayer() {
+            moveEntity(player);
+            if (Math.floor(player.x) == -2 && player.direction == Direction.left) {
+                player.x = map[0].length;
+            } else if (Math.ceil(player.x) == map[0].length + 1 && player.direction == Direction.right) {
+                player.x = -1;
+            }
+            
+            // Gathering points
+            if (points[Math.round(player.y)].charAt(Math.round(player.x))=="1") {
+                player.score += 10;
+                points[Math.round(player.y)] =
+                    points[Math.round(player.y)].substring(0, Math.round(player.x)) + "0" +
+                    points[Math.round(player.y)].substring(Math.round(player.x) + 1, points[Math.round(player.y)].length);
+            }
+        }
+        
+        function checkConditions() {
+            // You gon die bitch
+            for (var i = 0; i < ghosts.length; i++) {
+                var ghost = ghosts[i];
+                if (Math.round(ghost.x) == Math.round(player.x) &&
+                   Math.round(ghost.y) == Math.round(player.y)) {
+                    gameover();
+                }
+            }
+        }
+        
+        function moveEntity(entity, ghost = false, alive = true) {
+            var startX = entity.x;
+            var startY = entity.y;
+            if (entity.direction == Direction.down) {
+                if (isPassable(Math.round(entity.x), Math.floor(entity.y)+1, ghost, alive)) {
+                    entity.x = Math.round(entity.x);
+                    entity.y += entity.speed;
+                }
+            } else if (entity.direction == Direction.left) {
+                if (isPassable(Math.ceil(entity.x)-1, Math.round(entity.y), ghost, alive)) {
+                    entity.y = Math.round(entity.y);
+                    entity.x -= entity.speed;
+                }
+            } else if (entity.direction == Direction.right) {
+                if (isPassable(Math.floor(entity.x)+1, Math.round(entity.y), ghost, alive)) {
+                    entity.y = Math.round(entity.y);
+                    entity.x += entity.speed;
+                }
+            } else if (entity.direction == Direction.up) {
+                if (isPassable(Math.round(entity.x), Math.ceil(entity.y)-1, ghost, alive)) {
+                    entity.x = Math.round(entity.x);
+                    entity.y -= entity.speed;
+                }
+            }
+            entity.moving = (entity.x != startX || entity.y != startY);
+            return entity.moving;
+        }
+        
+        function drawPlayer() {
+            player.time++;
+            var offset = 0;
+            if (player.direction == Direction.up) {
+                offset = -Math.PI * 0.5;
+            } else if (player.direction == Direction.left) {
+                offset = Math.PI;
+            } else if (player.direction == Direction.down) {
+                offset = Math.PI * 0.5;
+            }
+            gc.beginPath();
+            gc.fillStyle = "orange";
+            gc.ellipse(player.x * Graphics.tile_w + Graphics.tile_w/2,
+                       player.y * Graphics.tile_h + Graphics.tile_h/2,
+                       Graphics.tile_w/2,
+                       Graphics.tile_h/2,
+                       Math.abs(Math.sin(player.time / 10)) + offset,
+                       0, Math.PI);
+            gc.fill();
+            gc.closePath();
+            gc.beginPath();
+            gc.ellipse(player.x * Graphics.tile_w + Graphics.tile_w/2,
+                       player.y * Graphics.tile_h + Graphics.tile_h/2,
+                       Graphics.tile_w/2,
+                       Graphics.tile_h/2,
+                       Math.PI - Math.abs(Math.sin(player.time / 10)) + offset,
+                       0, Math.PI);
+            gc.fill();
+            gc.closePath();
+        }
+        
+        function handleGhosts() {
+            for (var i = 0; i < ghosts.length; i++) {
+                var ghost = ghosts[i];
+                if (ghost.time > 0) {
+                    ghost.time--;
+                    if (ghost.time == 1) {
+                        ghost.direction = Direction.up;
+                        moveEntity(ghost, true, ghost.alive);
+                    }
+                } else {
+                    if (ghost.ai == "pink" || ghost.ai == "blue") { // Pink chooses a random direction at each intersection
+                        var paths = getPossiblePaths(ghost, true);
+                        console.log(paths);
+                        if (paths.length >= 3 && !ghost.lock) {
+                            var startDir = ghost.direction;
+                            ghost.direction = paths[Math.floor(Math.random() * paths.length)];
+                            while (ghost.direction == Direction.opposite(startDir)) {
+                                ghost.direction = paths[Math.floor(Math.random() * paths.length)];
+                            }
+                            ghost.moving = true;
+                            ghost.lock = true;
+                        } else if (ghost.lock && paths.length <= 2) {
+                            ghost.lock = false;
+                        }
+                    } else if (ghost.ai == "red") { // Red goes towards the player at each intersection
+                        var paths = getPossiblePaths(ghost, true);
+                        console.log(paths);
+                        if (paths.length >= 3 && !ghost.lock) {
+                            var startDir = ghost.direction;
+                            var xDif = player.x - ghost.x;
+                            var yDif = player.y - ghost.y;
+                            if (Math.abs(xDif) > Math.abs(yDif)) {
+                                if (xDif > 0 && paths.includes(Direction.right)) {
+                                    ghost.direction = Direction.right;
+                                } else if (xDif < 0 && paths.includes(Direction.left)) {
+                                    ghost.direction = Direction.left;
+                                }
+                            } else {
+                                if (yDif > 0 && paths.includes(Direction.down)) {
+                                    ghost.direction = Direction.down;
+                                } else if (yDif < 0 && paths.includes(Direction.up)) {
+                                    ghost.direction = Direction.up;
+                                }
+                            }
+                            ghost.moving = true;
+                            ghost.lock = true;
+                        } else if (ghost.lock && paths.length <= 2) {
+                            ghost.lock = false;
+                        }
+                    }
+                    if (!ghost.moving) { // Orange moves along the side of the map
+                        var startDir = ghost.direction;
+                        while (!ghost.moving) {
+                            ghost.direction = Math.floor(Math.random() * 4);
+                            if (ghost.direction != startDir && ghost.direction != Direction.opposite(startDir)) {
+                                moveEntity(ghost, true, ghost.alive);
+                            }
+                        }
+                    } else {
+                        moveEntity(ghost, true, ghost.alive);
+                    }
+                    // Set to alive if ghost has left the starting box
+                    if (!ghost.alive && map[Math.round(ghost.y)].charAt(Math.round(ghost.x)) != "2") {
+                        console.log("alive")
+                        ghost.alive = true;
+                    }
+                }
+                
+                
+                // Drawing the ghost
+                gc.drawImage(ghost.sprite,
+                             ghost.x * Graphics.tile_w, ghost.y * Graphics.tile_h,
+                             Graphics.tile_w, Graphics.tile_h);
+            }
+        }
+        
+        function getPossiblePaths(entity, ghost = false) {
+            var paths = [];
+            if (isPassable(Math.round(entity.x), Math.round(entity.y)+1, ghost) && (entity.x % 1 < 0.1 || entity.x % 1 > 0.9)) {
+                paths.push(Direction.down);
+            }
+            if (isPassable(Math.round(entity.x)-1, Math.round(entity.y), ghost) && (entity.y % 1 < 0.1 || entity.y % 1 > 0.9)) {
+                paths.push(Direction.left);
+            }
+            if (isPassable(Math.round(entity.x)+1, Math.round(entity.y), ghost) && (entity.y % 1 < 0.1 || entity.y % 1 > 0.9)) {
+                paths.push(Direction.right);
+            }
+            if (isPassable(Math.round(entity.x), Math.round(entity.y)-1, ghost) && (entity.x % 1 < 0.1 || entity.x % 1 > 0.9)) {
+                paths.push(Direction.up);
+            }
+            return paths;
+        }
+        
+        function isAtTileCenter(entity) {
+            return ((entity.x % 1 < 0.1 || entity.x % 1 > 0.9) && (entity.y % 1 < 0.1 || entity.y % 1 > 0.9))
+        }
+        
+        function gameover() {
+            clearInterval(fps);
+            gc.fillStyle = "#000000";
+            gc.fillRect(0, 0, Graphics.width, Graphics.height);
+            gc.fillStyle = "#FF4444";
+            gc.font = "40px Arial";
+            gc.fillText("Game Over", 200, Graphics.height / 2, 500);
+            gc.font = "30px Arial";
+            gc.fillText("Score: " + player.score, 200, Graphics.height / 2 + 50, 500);
+        }
+        
+        function keyDown(e) {
+            player.input[e.keyCode]=true;
+        }
+        
+        function keyUp(e) {
+            player.input[e.keyCode]=false;
+        }
+        
+        var KeyCode = {
+            ArrowUp: 38,
+            ArrowLeft: 37,
+            ArrowRight: 39,
+            ArrowDown: 40
+        }
+        
+        function updateInput() {
+            if (player.input[KeyCode.ArrowDown]) {
+                if (isPassable(Math.round(player.x),Math.floor(player.y)+1) && (player.x % 1 < 0.1 || player.x % 1 > 0.9)) {
+                    player.direction = Direction.down;
+                }
+            } else if (player.input[KeyCode.ArrowLeft]) {
+                if (isPassable(Math.floor(player.x)-1,Math.round(player.y)) && (player.y % 1 < 0.1 || player.y % 1 > 0.9)) {
+                    player.direction = Direction.left;
+                }
+            } else if (player.input[KeyCode.ArrowRight]) {
+                if (isPassable(Math.ceil(player.x)+1,Math.round(player.y)) && (player.y % 1 < 0.1 || player.y % 1 > 0.9)) {
+                    player.direction = Direction.right;
+                }
+            } else if (player.input[KeyCode.ArrowUp]) {
+                if (isPassable(Math.round(player.x),Math.ceil(player.y)-1) && (player.x % 1 < 0.1 || player.x % 1 > 0.9)) {
+                    player.direction = Direction.up;
+                }
+            }
+        }
+    
+    </script>
+    
+</body>
+</html>
+
+
+
+
+
+
